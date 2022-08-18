@@ -1,5 +1,5 @@
 # MRes_EEC_Summer_Project
-This repository contains scripts for simulaton and analysis on "Trans-generational effects of age - a meta-analysis".
+This repository contains scripts for simulaton and analysis on "Amphibian chytridiomycosis in Camerooon - understanding the epidemiology".
 
 # Author name and contact
 Name: Lexi Chen
