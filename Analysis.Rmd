@@ -1,0 +1,467 @@
+---
+title: "Analysis"
+author: "Lexi Chen"
+date: "15/07/2022"
+output: word_document
+---
+
+```{r}
+# Set working directory
+setwd("C:/Users/Lexi C/Desktop/qPCR data")
+```
+
+```{r}
+# Load dataset in
+library(readxl)
+Data <- read_excel("Copy of Anaud SE Mount Bamboutos swabs data1.xlsx")
+Data <- subset(Data, Data$species != "_")
+Data <- subset(Data, Data$species != "-")
+Data <- subset(Data, Data$`PCR results` != "NA")
+```
+
+```{r}
+# Total prevalence for both mountains
+TotalPOS <- sum(Data$`GE value`>0.1,na.rm=TRUE) # 32
+TotalPrevalence <- TotalPOS/337 # 0.09495549
+
+POSData <- subset(Data, Data$`GE value`>0.1)
+TotalMeanGE <- mean(POSData$`GE value`) # 12.60362
+TotalVarGE <- var(POSData$`GE value`) # 456.2378
+```
+
+```{r}
+# Total prevalence for Mt.M
+Data_Mt_M <- subset(Data, Data$Location == "Mt Manengouba")
+Mt_M_POS <- sum(Data_Mt_M$`GE value`>0.1,na.rm=TRUE) # 32
+Mt_M_Prevalence <- Mt_M_POS/316 # 0.1012658
+
+Mt_M_POSData <- subset(Data_Mt_M, Data_Mt_M$`GE value`>0.1)
+Mt_M_MeanGE <- mean(Mt_M_POSData$`GE value`) # 12.60362
+Mt_M_VarGE <- var(Mt_M_POSData$`GE value`) # 456.2378
+```
+
+```{r}
+# Total prevalence for Mt.B
+Data_Mt_B <- subset(Data, Data$Location == "Mt Bamboutos")
+Mt_B_POS <- sum(Data_Mt_B$`GE value`>0.1,na.rm=TRUE) # 0
+Mt_B_Prevalence <- Mt_B_POS/21 # 0
+
+Mt_B_POSData <- subset(Data_Mt_B, Data_Mt_B$`GE value`>0.1)
+Mt_B_MeanGE <- mean(Mt_B_POSData$`GE value`) # NA
+Mt_B_VarGE <- var(Mt_B_POSData$`GE value`) # NA
+```
+
+```{r}
+# Table 1
+library(gt)
+# Create a data frame
+table1 <- data.frame(Location = c("Both mountains","Mount Manengouba","Mount Bamboutos"),
+                     `Number of positive samples` = c(32,32,0),
+                     `Total number of samples` = c(337,316,21),
+                     `Prevalence` = c(9.5,10.1,0),
+                     `GE mean` = c(12.6,12.6,NA),
+                     `GE variance` = c(456.2,456.2,NA))
+# Creating a nicely-formatted table using the R package 'gt'
+table1.gt <- table1 %>%
+  gt::gt() %>% 
+  cols_label(Location = md("**Location**"),
+             Number.of.positive.samples = md("**Number of positive samples**"),
+             Total.number.of.samples = md("**Total number of samples**"),
+             Prevalence = md("**Prevalence\n(%)**"),
+             GE.mean = md("**GE mean**"),
+             GE.variance = md("**GE variance**")) %>%
+  cols_align(align = "center") %>%
+  opt_align_table_header(align = "center") %>%
+  tab_source_note(source_note = md("*GE = genomic equivalent"))
+table1.gt
+gtsave(table1.gt,"table1.pdf")
+```
+
+```{r}
+# Prevalence per species
+library(dplyr)
+Individual_count_per_species <- Data %>% group_by(species) %>% summarise(count_individual=n())
+
+POS_individual_count_per_species <- Data%>% group_by(species,`PCR results`) %>% summarise(count_posneg_individual=n())
+POS_individual_count_per_species <- POS_individual_count_per_species %>% subset(`PCR results`== "POS")
+
+Prevalence_per_species <- POS_individual_count_per_species
+Prevalence_per_species$total_count <- Individual_count_per_species$count_individual[match(POS_individual_count_per_species$species, Individual_count_per_species$species)] # Match then name from total species with positive species, and input the total count per species into a new column if there is a match
+
+Prevalence_per_species$Prevalence <- Prevalence_per_species$count_posneg_individual/Prevalence_per_species$total_count
+
+library(tidyverse)
+Prevalence_per_species <- Prevalence_per_species %>% arrange(desc(Prevalence))
+
+# Mean GE per species
+MeanGEspecies <- subset(Data, Data$`GE value`>0.1)
+MeanGEspecies <- MeanGEspecies %>% group_by(species) %>% summarise_at(vars(`GE value`),list(name = mean))
+Prevalence_per_species$MeanGE <- MeanGEspecies$name[match(MeanGEspecies$species,Prevalence_per_species$species)]
+
+# GE variance per species
+VarGEspecies <- subset(Data, Data$`GE value`>0.1)
+VarGEspecies <- VarGEspecies %>% group_by(species) %>% summarise_at(vars(`GE value`),list(name = var))
+Prevalence_per_species$VarGE <- VarGEspecies$name[match(MeanGEspecies$species,Prevalence_per_species$species)]
+
+# Rounding decimal places
+Prevalence_per_species$Prevalence <- round(Prevalence_per_species$Prevalence, digit = 2)
+Prevalence_per_species$MeanGE <- round(Prevalence_per_species$MeanGE, digit = 2)
+Prevalence_per_species$VarGE <- round(Prevalence_per_species$VarGE, digit = 2)
+  
+# IUCN status
+Prevalence_per_species$IUCN <- Data$IUCN[match(Prevalence_per_species$species,Data$species)]
+
+# Death rate
+Dead <- subset(Data, Data$`death frogs` == "yes")
+Alive <- subset(Data, Data$`death frogs` == "no")
+Dead <- subset(Dead, Dead$`PCR results` == "POS")
+Dead.rate <- Dead %>% group_by(species) %>% summarise(count_individual=n())
+Total <- Data %>% group_by(species) %>% summarise(count_individual=n())
+Dead.rate$total_individual <- Total$count_individual[match(Dead.rate$species,Total$species)]
+Dead.rate$death_rate <- Dead.rate$count_individual/Dead.rate$total_individual
+Dead.rate$death_rate <- round(Dead.rate$death_rate, digits = 2)
+Prevalence_per_species$dead_rate <- Dead.rate$death_rate[match(Prevalence_per_species$species,Dead.rate$species)]
+
+# Clean table
+Prevalence_per_species <- subset(Prevalence_per_species,select = -c(`PCR results`))
+Prevalence_per_species <- data.frame(Prevalence_per_species)
+```
+
+```{r}
+# Table 2
+# Creating a nicely-formatted table using the R package 'gt'
+library(gt)
+table2.gt <- Prevalence_per_species %>%
+  gt::gt() %>% 
+  cols_label(species = md("**Species**"),
+             count_posneg_individual = md("**Number of positive samples**"),
+             total_count = md("**Total number of samples**"),
+             Prevalence = md("**Prevalence\n(%)**"),
+             MeanGE = md("**GE mean**"),
+             VarGE = md("**GE variance**"),
+             dead_rate = md("**Death rate**"),
+             IUCN = md("**IUCN status**")) %>%
+  cols_align(align = "center") %>%
+  tab_source_note(source_note = md("*LC = least concern; DD = data deficient; EN = endangered"))
+table2.gt
+gtsave(table2.gt,"table2.pdf")
+```
+
+```{r}
+# Comparing alive and death frog
+Dead <- subset(Data, Data$`death frogs` == "yes")
+Alive <- subset(Data, Data$`death frogs` == "no")
+
+DeadPOS <- Dead %>% group_by(`PCR results`) %>% summarise(count_individual=n())
+AlivePOS <- Alive %>% group_by(`PCR results`) %>% summarise(count_individual=n())
+
+DeadPOSGE <- subset(Dead, Dead$`PCR results` == "POS")
+AlivePOSGE <- subset(Alive, Alive$`PCR results` == "POS")
+
+DeadGEMean <- mean(DeadPOSGE$`GE value`) # 6.0586
+AliveGEMean <- mean(AlivePOSGE$`GE value`) # 13.81567
+
+DeadGEVar <- var(DeadPOSGE$`GE value`) # 92.11726
+AliveGEVar <- var(AlivePOSGE$`GE value`) # 520.0405
+
+DeadAlive <- data.frame(Status = c("Dead","Alive"),
+                        POS = c(5,27),
+                        Total = c(18,319),
+                        Prevalence = c(27.78,8.46),
+                        MeanGE = c(6.06,13.82),
+                        VarGE = c(92.12,520.04))
+
+# Table 3
+table3.gt <- DeadAlive %>%
+  gt::gt() %>% 
+  cols_label(Status = md("**Status**"),
+             POS = md("**Number of positive samples**"),
+             Total = md("**Total number of samples**"),
+             Prevalence = md("**Prevalence\n(%)**"),
+             MeanGE = md("**GE mean**"),
+             VarGE = md("**GE variance**")) %>%
+  cols_align(align = "center") %>%
+  tab_source_note(source_note = md("*GE = genomic equivalent"))
+table3.gt
+gtsave(table3.gt,"table3.pdf")
+```
+
+```{r}
+# Table 4
+library(dplyr)
+POSData$lineage <- paste(POSData$GPL,POSData$CAPE)
+POSData %>% count(POSData$lineage == "NA CAPE") # 29
+POSData %>% count(POSData$lineage == "GPL NA") # 1
+POSData %>% count(POSData$lineage == "GPL CAPE") # 2
+
+CAPE <- subset(POSData, POSData$lineage == "NA CAPE")
+mean(CAPE$`CAPE GE`) # 3.459517
+var(CAPE$`CAPE GE`) # 49.41597
+
+GPL <- subset(POSData, POSData$lineage == "GPL NA")
+mean(GPL$`GPL GE`) # 0.142
+var(GPL$`GPL GE`) # NA
+
+GPLCAPE <- subset(POSData, POSData$lineage == "GPL CAPE")
+mean(c(0.091,0.191,0.467,0.326)) # 0.26875
+var(c(0.091,0.191,0.467,0.326)) # 0.02674025
+
+Lineage <- data.frame(Lineage = c("CPAE","GPL","CAPE & GPL"),
+                        Positive.lineage = c(29,1,2),
+                        Total = c(32,32,32),
+                        Propotion  = c(0.91,0.032,0.063),
+                        MeanGE = c(3.46,0.14,0.27),
+                        VarGE = c(49.42,NA,0.027))
+
+# Table 4
+table4.gt <- Lineage %>%
+  gt::gt() %>% 
+  cols_label(Lineage = md("**Lineage**"),
+             Positive.lineage = md("**Number of samples tested for the lineage**"),
+             Total = md("**Total number of positive samples**"),
+             Propotion = md("**Proportion\n(%)**"),
+             MeanGE = md("**GE mean**"),
+             VarGE = md("**GE variance**")) %>%
+  cols_align(align = "center") %>%
+  tab_source_note(source_note = md("*GE = genomic equivalent"))
+table4.gt
+gtsave(table4.gt,"table4.pdf")
+```
+
+```{r}
+# Prevalence per Genus
+library(dplyr)
+Individual_count_per_Genus <- Data %>% group_by(Genus) %>% summarise(count_individual=n())
+
+POS_individual_count_per_Genus <- Data %>% group_by(Genus,`PCR results`) %>% summarise(count_posneg_individual=n())
+POS_individual_count_per_Genus <- POS_individual_count_per_species %>% subset(`PCR results`== "POS")
+
+Prevalence_per_Genus <- POS_individual_count_per_Genus
+Prevalence_per_Genus$total_count <- Individual_count_per_Genus$count_individual[match(POS_individual_count_per_Genus$Genus, Individual_count_per_Genus$Genus)] # Match then name from total species with positive species, and input the total count per species into a new column if there is a match
+
+Prevalence_per_Genus$Prevalence <- Prevalence_per_Genus$count_posneg_individual/Prevalence_per_Genus$total_count
+
+# Plot bar plot with Clopper-Pearson 95% CI
+Prevalence_per_Genus$LowerCI <- c(0.0079,0.0389,0.0010,0.0009,0.1330,0.0069,0.0338,0.1073,0.0017)
+Prevalence_per_Genus$UpperCI <- c(0.2142,0.2117,0.2035,0.1897,0.4552,0.0933,0.3958,0.5022,0.3195)
+
+Prevalence_per_Genus$LowerCI <- Prevalence_per_Genus$LowerCI*100
+Prevalence_per_Genus$UpperCI <- Prevalence_per_Genus$UpperCI*100
+Prevalence_per_Genus$Prevalence <- Prevalence_per_Genus$Prevalence*100
+
+library(ggplot2)
+Prevalence_per_Genus %>%
+  ggplot(aes(x=Genus,y=Prevalence))+
+  geom_bar(stat="identity")+
+  ylim(0,100)+
+  ylab("Prevalence (%)")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust=1))+
+  geom_errorbar(aes(ymin=LowerCI,ymax=UpperCI),width = 0.3)
+```
+
+
+```{r}
+# testing the effect of abiotic factors (altitude, temperature, precipitation and deforestation)
+library(Matrix)
+library(lme4)
+library(stringr)
+
+# Data wrangling
+Data$PCR_NO <- ifelse(Data$`PCR results`=="POS",1,0)
+Data$Seasons_NO <- ifelse(Data$`Seasons`=="Wet",1,0)
+Data <- Data[-82,]
+Data$Deforestation <- as.numeric(Data$Deforestation)
+Data$Temp_min <- as.numeric(Data$Temp_min)
+Data$Temp_max <- as.numeric(Data$Temp_max)
+Data$Prec <- as.numeric(Data$Prec)
+Data[118,4] <- "Sclerphrys"
+Data$Genus <- word(Data$species,1)
+Data$Genus <- tolower(Data$Genus)
+
+# Rescale to reduce rank deficiency
+Data$AltitudeScale <- scale(Data$altitude)[,1]
+Data$Temp_minScale <- scale(Data$Temp_min)[,1]
+Data$Temp_maxScale <- scale(Data$Temp_max)[,1]
+Data$PrecScale <- scale(Data$Prec)[,1]
+Data$DeforestationScale <- scale(Data$Deforestation)[,1]
+
+##mean and SD of scaled Predictors
+
+mean(Data$AltitudeScale) # -1.285899e-16
+sd(Data$AltitudeScale) # 1
+
+mean(Data$Temp_minScale) # 2.201453e-16
+sd(Data$Temp_minScale) # 1
+
+mean(Data$Temp_maxScale) # 4.8772e-16
+sd(Data$Temp_maxScale) # 1
+
+mean(Data$PrecScale) # -1.303172e-17
+sd(Data$PrecScale) # 1
+
+mean(Data$DeforestationScale) # 2.423442e-18
+sd(Data$DeforestationScale) # 1
+
+# Model fitting - FULL MODEL
+library(lme4)
+Model1 <- glmer(PCR_NO ~ AltitudeScale + Temp_minScale + PrecScale + Genus + (1|`plot no`) + (1| Year/Month), family = binomial, data = Data) # rank deficiency problem -> solved by rescaling the predictors
+summary(Model1)
+
+# Model selection
+## Simplification Step 1 - remove each term in turn from the global model 
+m2_1<-update(Model1,~.-AltitudeScale)
+m2_2<-update(Model1,~.-Temp_minScale)
+m2_3<-update(Model1,~.-PrecScale)
+m2_4<-update(Model1,~.-Genus)
+
+anova(Model1,m2_1) # chi = 2.3212; df = 1, p = 0.1276 
+anova(Model1,m2_2) # chi = 0.861; df = 1, p = 0.3535 
+anova(Model1,m2_3) # chi = 1.2687; df = 1, p = 0.26
+anova(Model1,m2_4) # chi = 20.586; df = 15, p = 0.1506
+
+## Simplification Step 2 - the removal of Temp_min gave the highest p value, so the model with that one missing becomes the new base model      
+m3_1<-update(m2_2,~.-AltitudeScale)
+m3_2<-update(m2_2,~.-PrecScale)
+m3_3<-update(m2_2,~.-Genus)
+
+
+anova(m2_2,m3_1) # chi = 2.0427; df = 1, p = 0.1529
+anova(m2_2,m3_2) # chi = 0.7271; df = 1, p = 0.3938
+anova(m2_2,m3_3) # chi = 20.45; df = 15, p = 0.1553
+
+## Simplification Step 3 - the removal of Precipitation gave the highest p value, so the model with that one missing becomes the new base model
+m4_1<-update(m3_2,~.-AltitudeScale)
+m4_2<-update(m3_2,~.-Genus)
+
+
+anova(m3_2,m4_1) # chi = 1.6667; df = 1, p = 0.1967
+anova(m3_2,m4_2) # chi = 210.593; df = 15, p = 0.1503
+
+# Simplification Step 4 - the removal of Altitude gave the highest p value, so the model with that one missing becomes the new base model                
+# We still need to remove Genus from the 'new' model to get an accurate p value, even though in practice it wont change that much
+m5_1<-update(m4_1,~.-AltitudeScale)
+
+anova(m4_2,m5_1) # chi = 18.927; df = 14, p = 0.1678
+summary(m4_1)
+```
+
+```{r}
+# Bd prevalence against Month
+## Calculating prevalence according to month (GE>0)
+library(dplyr)
+Individual_count_per_month <- Data %>% group_by(Month) %>% summarise(count_month=n())
+
+POS_individual_count_per_month <- Data %>% group_by(Month,`PCR results`) %>% summarise(count_posneg_month=n())
+
+POS_individual_count_per_month <- POS_individual_count_per_month %>% subset(`PCR results`== "POS")
+
+Prevalence_per_month <- POS_individual_count_per_month
+
+Prevalence_per_month$total_count <- Individual_count_per_month$count_month[match(POS_individual_count_per_month$Month,Individual_count_per_month$Month)]
+
+Prevalence_per_month$Prevalence <- Prevalence_per_month$count_posneg_month/Prevalence_per_month$total_count
+
+month_order<-c("January", "March", "July", "August", "September", "December")
+Prevalence_per_month <- Prevalence_per_month %>% mutate(Month = factor(Month, levels = month_order)) %>% arrange(Month)
+
+Prevalence_per_month$LowerCI <- c(0.1352,0.0330,0.0006,0.0642,0.0010,0.0006)
+Prevalence_per_month$UpperCI <- c(0.4117,0.2745,0.1257,0.1850,0.1964,0.1348)
+Prevalence_per_month$Prevalence <- Prevalence_per_month$Prevalence * 100
+Prevalence_per_month$LowerCI <- Prevalence_per_month$LowerCI * 100
+Prevalence_per_month$UpperCI <- Prevalence_per_month$UpperCI * 100
+
+# Create a plot of Bd prevalence against month
+library(ggplot2)
+Prevalence_per_month %>%
+  tail(10) %>%
+  ggplot(aes(x=Month,y=Prevalence))+
+  geom_bar(stat="identity")+
+  geom_errorbar(aes(ymin=LowerCI,ymax=UpperCI),width = 0.2)
+
+# Time Series Analysis
+library(tseries)
+P_per_month <- c(25.581395,0,11.764706,0,0,0,2.380952,11.570248,4.000000,0,0,2.564103)
+TS<-ts(P_per_month,frequency = 12)
+# Conducted test by supplementing the missing month prevalence as zero, but obviously that will causes biased in the test
+adf.test(TS) # Dickey-Fuller = -3.6586, Lag order = 2, p-value = 0.04582 # p-value < 0.05 indicates the TS is stationary
+kpss.test(TS) # KPSS Level = 0.28644, Truncation lag parameter = 2, p-value = 0.1 # p-value > 0.05 indicates the TS is stationary
+```
+
+```{r}
+# Mortality as binary response variable to test for the correlation with Bd prevalence
+# dead positive frog
+library(dplyr)
+DeadPOSdf2 <- subset(Data, Data$`death frogs` == "yes")
+DeadPOSdf2 <- subset(DeadPOSdf2, DeadPOSdf2$`PCR results`=="POS")
+
+# alive negative frog
+AliveNEGdf2 <- subset(Data, Data$`death frogs` == "no")
+AliveNEGdf2 <- subset(AliveNEGdf2, AliveNEGdf2$`PCR results`=="NEG")
+
+# Combine both dataset
+DeadAlive <- rbind(DeadPOSdf2,AliveNEGdf2)
+DeadAlive$Mortality_NO <- ifelse(DeadAlive$`death frogs`=="yes",1,0)
+
+# model dead positive frog vs. alive negative frog as binary response variable
+Model2 <- glmer(Mortality_NO ~ PCR_NO + Seasons_NO + Genus + (1|`plot no`) + (1| Year/Month), family = binomial, data = DeadAlive)
+summary(Model2)
+# no correlation between mortality and Bd prevalence, supporting the idea that Bd is enzootic in the area
+
+# Model selection
+## Simplification Step 1 - remove each term in turn from the global model 
+m2_1<-update(Model2,~.-PCR_NO)
+m2_2<-update(Model2,~.-Seasons_NO)
+m2_3<-update(Model2,~.-Genus)
+
+anova(Model2,m2_1) # chi = 7.0216; df = 1, p = 0.008053 
+anova(Model2,m2_2) # chi = 0; df = 1, p = 1 
+anova(Model2,m2_3) # chi = 0; df = 15, p = 1
+
+## Simplification Step 2 - the removal of Seasons gave the highest p value, so the model with that one missing becomes the new base model      
+m3_1<-update(m2_2,~.-PCR_NO)
+m3_2<-update(m2_2,~.-Genus)
+
+
+anova(m2_2,m3_1) # chi = 7.0438; df = 1, p = 0.007954
+anova(m2_2,m3_2) # chi = 0; df = 15, p = 1
+
+# Simplification Step 4 - the removal of Genus gave the highest p value, so the model with that one missing becomes the new base model                
+# We still need to remove Genus from the 'new' model to get an accurate p value, even though in practice it wont change that much
+m4_1<-update(m3_2,~.-Genus)
+
+anova(m3_2,m4_1) # chi = 0; df = 0, p = NA
+
+summary(m4_1)
+```
+
+```{r}
+# Whether Bd load is affected by factors
+POSData <- subset(Data, Data$`GE value`>0.1)
+POSData$Seasons_NO <- ifelse(POSData$`Seasons`=="Wet",1,0)
+
+GEmodel2 <- glmer(`GE value` ~ Seasons_NO + Genus + (1|`plot no`) + (1| Year/Month), data = POSData)
+summary(GEmodel2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
